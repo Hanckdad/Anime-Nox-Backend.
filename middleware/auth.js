@@ -1,28 +1,52 @@
-const { createClient } = require('@supabase/supabase-js');
-
-const supabaseUrl = 'https://zqlsbizhwaoepyayzjfp.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpxbHNiaXpod2FvZXB5YXl6amZwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzcxMjE4NywiZXhwIjoyMDc5Mjg4MTg3fQ.jBjomFYoJpuiYSPrT36DQbzSLYDwJjj0npxtwsl3rVs';
-const supabase = createClient(supabaseUrl, supabaseKey);
+const { supabase } = require('../config/supabase');
 
 const authenticateUser = async (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1] || req.cookies.token;
     
     if (!token) {
-      return res.status(401).json({ error: 'Authentication required' });
+      return res.status(401).json({ 
+        error: 'Authentication required',
+        code: 'AUTH_REQUIRED'
+      });
     }
 
     const { data: { user }, error } = await supabase.auth.getUser(token);
     
     if (error || !user) {
-      return res.status(401).json({ error: 'Invalid token' });
+      return res.status(401).json({ 
+        error: 'Invalid or expired token',
+        code: 'INVALID_TOKEN'
+      });
     }
 
     req.user = user;
     next();
   } catch (error) {
-    res.status(401).json({ error: 'Authentication failed' });
+    console.error('Auth middleware error:', error);
+    res.status(401).json({ 
+      error: 'Authentication failed',
+      code: 'AUTH_FAILED'
+    });
   }
 };
 
-module.exports = { authenticateUser };
+const optionalAuth = async (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1] || req.cookies.token;
+    
+    if (token) {
+      const { data: { user }, error } = await supabase.auth.getUser(token);
+      
+      if (!error && user) {
+        req.user = user;
+      }
+    }
+    
+    next();
+  } catch (error) {
+    next(); // Continue without user for optional auth
+  }
+};
+
+module.exports = { authenticateUser, optionalAuth };
