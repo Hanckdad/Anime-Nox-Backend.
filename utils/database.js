@@ -1,57 +1,87 @@
-const { createClient } = require('@supabase/supabase-js');
+const { supabase } = require('../config/supabase');
 
-const supabaseUrl = 'https://zqlsbizhwaoepyayzjfp.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpxbHNiaXpod2FvZXB5YXl6amZwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzcxMjE4NywiZXhwIjoyMDc5Mjg4MTg3fQ.jBjomFYoJpuiYSPrT36DQbzSLYDwJjj0npxtwsl3rVs';
-
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-// Initialize database tables
 const initializeDatabase = async () => {
   try {
-    // Create profiles table
-    const { error: profilesError } = await supabase
-      .from('profiles')
-      .select('*')
-      .limit(1);
+    console.log('🔄 Initializing AnimeNox Database...');
 
-    if (profilesError) {
-      console.log('Profiles table might need to be created');
+    // Check and create tables if they don't exist
+    const tables = ['profiles', 'watch_history', 'subscriptions', 'downloads'];
+    
+    for (const table of tables) {
+      const { error } = await supabase
+        .from(table)
+        .select('*')
+        .limit(1);
+
+      if (error) {
+        console.log(`Table ${table} might not exist. Please run the SQL schema.`);
+      } else {
+        console.log(`✅ Table ${table} is ready`);
+      }
     }
 
-    // Create watch_history table
-    const { error: historyError } = await supabase
-      .from('watch_history')
-      .select('*')
-      .limit(1);
-
-    if (historyError) {
-      console.log('Watch history table might need to be created');
-    }
-
-    // Create subscriptions table
-    const { error: subsError } = await supabase
-      .from('subscriptions')
-      .select('*')
-      .limit(1);
-
-    if (subsError) {
-      console.log('Subscriptions table might need to be created');
-    }
-
-    // Create downloads table
-    const { error: downloadsError } = await supabase
-      .from('downloads')
-      .select('*')
-      .limit(1);
-
-    if (downloadsError) {
-      console.log('Downloads table might need to be created');
-    }
-
-    console.log('Database initialization check completed');
+    console.log('🎌 AnimeNox Database initialized successfully');
   } catch (error) {
-    console.error('Database initialization error:', error);
+    console.error('❌ Database initialization error:', error.message);
   }
 };
 
-module.exports = { supabase, initializeDatabase };
+// Helper functions for common operations
+const dbHelpers = {
+  // Upsert with conflict handling
+  upsert: async (table, data, conflictColumns) => {
+    const { data: result, error } = await supabase
+      .from(table)
+      .upsert(data, { onConflict: conflictColumns })
+      .select();
+
+    if (error) throw error;
+    return result;
+  },
+
+  // Safe insert that ignores conflicts
+  safeInsert: async (table, data) => {
+    const { data: result, error } = await supabase
+      .from(table)
+      .insert(data)
+      .select();
+
+    if (error && !error.code.includes('23505')) { // Ignore unique violation
+      throw error;
+    }
+    return result;
+  },
+
+  // Paginated select
+  paginatedSelect: async (table, conditions = {}, page = 1, limit = 20, orderBy = 'created_at', orderAsc = false) => {
+    const offset = (page - 1) * limit;
+    
+    let query = supabase
+      .from(table)
+      .select('*', { count: 'exact' });
+
+    // Apply conditions
+    Object.entries(conditions).forEach(([key, value]) => {
+      query = query.eq(key, value);
+    });
+
+    // Apply ordering and pagination
+    const { data, error, count } = await query
+      .order(orderBy, { ascending: orderAsc })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw error;
+
+    return {
+      data,
+      pagination: {
+        page,
+        limit,
+        total: count,
+        pages: Math.ceil(count / limit)
+      }
+    };
+  }
+};
+
+module.exports = { initializeDatabase, dbHelpers, supabase };
